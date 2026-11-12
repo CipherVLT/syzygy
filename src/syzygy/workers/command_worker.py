@@ -5,9 +5,9 @@ import subprocess
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional
 
 from PySide6.QtCore import Slot
+
 from syzygy.workers.base_worker import BaseWorker
 
 logger = logging.getLogger(__name__)
@@ -19,9 +19,9 @@ class CommandWorker(BaseWorker):
         command: Sequence[str] | str,
         *,
         use_pkexec: bool = False,
-        cwd: Optional[Path] = None,
-        timeout: Optional[int] = 600,
-        env: Optional[dict[str, str]] = None,
+        cwd: Path | None = None,
+        timeout: int | None = 600,
+        env: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
         if isinstance(command, str):
@@ -33,7 +33,10 @@ class CommandWorker(BaseWorker):
         self.cwd = cwd
         self.timeout = timeout
         self.env = env
-        self._process: Optional[subprocess.Popen[str]] = None
+        self._process: subprocess.Popen[str] | None = None
+        # Exit status of the last run (None until the process has exited). Read it from a
+        # `finished` slot to tell e.g. pkexec "auth dismissed" (126) from a real failure.
+        self.returncode: int | None = None
 
     @Slot()
     def cancel(self) -> None:
@@ -85,6 +88,7 @@ class CommandWorker(BaseWorker):
                     return
 
             returncode = self._process.wait()
+            self.returncode = returncode
             if self.is_cancelled:
                 self._emit_finished(False, "Cancelled by user")
                 return

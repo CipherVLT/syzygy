@@ -35,6 +35,8 @@ class Package:
     app_id: Optional[str] = None
     branch: Optional[str] = None
     runtime: Optional[str] = None
+    # Flatpak installation the ref lives in ("system" / "user"); empty when unknown / RPM.
+    installation: str = ""
 
 
 @dataclass(slots=True, frozen=True)

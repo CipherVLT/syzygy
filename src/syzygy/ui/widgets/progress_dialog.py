@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Slot
-from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtGui import QCloseEvent, QFont, QTextCursor
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QPushButton, QTextEdit, QVBoxLayout,
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
 )
 
 
@@ -14,6 +19,7 @@ class TaskDialog(QDialog):
         self.setModal(True)
         self.resize(720, 480)
         self.setMinimumSize(560, 360)
+        self._running = True
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -49,21 +55,44 @@ class TaskDialog(QDialog):
         self.output.insertPlainText(line + "\n")
         self.output.moveCursor(QTextCursor.MoveOperation.End)
 
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    def reject(self) -> None:
+        # Esc must not hide a dialog whose transaction is still streaming output.
+        if not self._running:
+            super().reject()
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._running:
+            event.ignore()
+        else:
+            super().closeEvent(event)
+
+    def set_status(self, message: str) -> None:
+        self.status_lbl.setText(message)
+
     def set_running(self, message: str = "Running…") -> None:
+        self._running = True
         self.status_lbl.setText(message)
         self.status_lbl.setStyleSheet("color: #89b4fa;")
         self.btn_close.setEnabled(False)
 
     def set_success(self, message: str = "Task Completed Successfully") -> None:
+        self._running = False
         self.header.setText(message)
         self.header.setStyleSheet("font-size: 16px; font-weight: 700; color: #a6e3a1;")
         self.status_lbl.setText("Finished successfully")
         self.status_lbl.setStyleSheet("color: #a6e3a1;")
         self.btn_close.setEnabled(True)
 
-    def set_failure(self, message: str = "Task Failed") -> None:
+    def set_failure(
+        self, message: str = "Task Failed", detail: str = "Finished with errors"
+    ) -> None:
+        self._running = False
         self.header.setText(message)
         self.header.setStyleSheet("font-size: 16px; font-weight: 700; color: #f38ba8;")
-        self.status_lbl.setText("Finished with errors")
+        self.status_lbl.setText(detail)
         self.status_lbl.setStyleSheet("color: #f38ba8;")
         self.btn_close.setEnabled(True)

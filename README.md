@@ -30,12 +30,15 @@ sudo dnf install python3-pyside6 polkit flatpak fwupd grubby dracut
 ## Quick Start
 
 ```bash
-# From source
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
-syzygy
+git clone <repo-url> syzygy && cd syzygy
+./build.sh          # creates .venv, upgrades pip, pip install -e .
+./build.sh --run    # same, then launches Syzygy
 ```
+
+Or with make: `make install`, `make run`, `make clean` (removes `.venv`, `dist`, `build`, `*.egg-info`).
+
+If Qt reports it cannot load the `xcb` platform plugin on X11, install
+`sudo dnf install xcb-util-cursor`.
 
 ## Architecture
 

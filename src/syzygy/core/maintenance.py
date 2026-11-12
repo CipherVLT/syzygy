@@ -54,7 +54,8 @@ class MaintenanceStats:
     dnf_cache: str = ""
     journal: str = ""
     kernels_installed: int = 0
-    grub_cfg_exists: bool = False
+    # None = can't tell: /boot/grub2 is root-only (0700) on Fedora, so users can't stat it.
+    grub_cfg_exists: bool | None = None
 
 
 def _dir_size(path: Path) -> int:
@@ -79,6 +80,15 @@ def get_journal_usage() -> str:
     return match.group(1) if match else ""
 
 
+def grub_cfg_state(path: Path = GRUB_CFG) -> bool | None:
+    try:
+        return path.exists()
+    except PermissionError:
+        return None
+    except OSError:
+        return False
+
+
 def get_stats() -> MaintenanceStats:
     kernels = runner.run(["rpm", "-q", "kernel-core"], timeout=10)
     count = len([ln for ln in kernels.stdout.splitlines() if ln.startswith("kernel-core")])
@@ -86,5 +96,5 @@ def get_stats() -> MaintenanceStats:
         dnf_cache=get_dnf_cache_size(),
         journal=get_journal_usage(),
         kernels_installed=count,
-        grub_cfg_exists=GRUB_CFG.exists(),
+        grub_cfg_exists=grub_cfg_state(),
     )

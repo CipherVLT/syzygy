@@ -27,6 +27,20 @@ PKEXEC_DISMISSED = 126
 PKEXEC_NOT_AUTHORIZED = 127
 
 
+def format_command(command: Sequence[str], *, use_pkexec: bool = False) -> list[str]:
+    """Human-readable echo of a command for the output window.
+
+    ``bash -c SCRIPT`` is shown as the script's own lines instead of one shell-quoted blob.
+    """
+    prefix = "pkexec " if use_pkexec else ""
+    parts = list(command)
+    if len(parts) >= 3 and parts[0] in ("bash", "sh") and parts[1] == "-c":
+        script = [ln.strip() for ln in parts[2].replace("; ", ";\n").splitlines() if ln.strip()]
+        return [f"$ {prefix}{parts[0]} -c <<'SCRIPT'", *(f"    {ln}" for ln in script),
+                "  SCRIPT", ""]
+    return ["$ " + prefix + " ".join(shlex.quote(p) for p in parts), ""]
+
+
 class CommandTask(QObject):
     """Owns one ``CommandWorker`` and its ``TaskDialog`` for the lifetime of a transaction.
 
@@ -69,8 +83,8 @@ class CommandTask(QObject):
 
     # ------------------------------------------------------------------ public
     def start(self) -> None:
-        shown = ["pkexec", *self._command] if self._use_pkexec else self._command
-        self.dialog.append_line("$ " + " ".join(shlex.quote(part) for part in shown))
+        for line in format_command(self._command, use_pkexec=self._use_pkexec):
+            self.dialog.append_line(line)
         self.dialog.set_running(
             "Waiting for authentication…" if self._use_pkexec else "Running…"
         )

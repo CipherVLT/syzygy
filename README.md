@@ -30,14 +30,32 @@ sudo dnf install python3-pyside6 polkit flatpak fwupd grubby dracut
 ## Quick Start
 
 ```bash
-git clone <repo-url> syzygy && cd syzygy
-./build.sh          # creates .venv, upgrades pip, pip install -e .
-./build.sh --run    # same, then launches Syzygy
+git clone https://github.com/CipherVLT/syzygy.git
+cd syzygy
+./build.sh          # installs system-wide (asks for your sudo password once)
+syzygy              # or launch "Syzygy" from your app launcher
 ```
 
-Add `./build.sh --desktop` to install an app-grid launcher for the current user.
+After installing, the cloned folder is no longer needed: Syzygy lives in `/opt/syzygy`
+with a launcher in `/usr/local/bin` and a desktop entry + icon in `/usr/local/share`.
 
-Or with make: `make install`, `make run`, `make clean` (removes `.venv`, `dist`, `build`, `*.egg-info`).
+**Updating** – no `git pull` required:
+
+- In the app: **Maintenance → Syzygy → Update Syzygy** (shows when a newer version exists,
+  offers a restart afterwards), or
+- in a terminal: `sudo syzygy-update` (latest `main`), `sudo syzygy-update v0.3.0` (a tag).
+
+**Other options**
+
+| Command | What it does |
+|---|---|
+| `./build.sh --run` | install, then launch |
+| `./build.sh --update` | same as `sudo syzygy-update` |
+| `./build.sh --uninstall` | remove everything except your settings (`~/.config/Syzygy`) |
+| `./build.sh --dev [--run]` | developer mode: editable install into `./.venv`, no sudo |
+
+`make install`, `make run`, `make update`, `make uninstall`, `make dev`, `make dev-run`,
+`make clean` wrap the same commands.
 
 If Qt reports it cannot load the `xcb` platform plugin on X11, install
 `sudo dnf install xcb-util-cursor`.

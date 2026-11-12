@@ -24,6 +24,11 @@ CODEC_EXTRAS = ("gstreamer1-plugins-bad-freeworld", "gstreamer1-plugins-ugly",
 # SoX for converting/resampling PCM, libsndfile tools for WAV/AIFF/FLAC PCM inspection.
 PCM_PACKAGES = ("gstreamer1-plugins-base", "gstreamer1-plugins-good", "sox",
                 "libsndfile-utils")
+# Requested alongside codecs: build tooling and 32-bit (multilib) runtime/devel libraries.
+CODEC_TOOLING = ("cmake", "ninja-build", "obs-build",
+                 "glibc-devel.i686", "libgcc.i686", "libstdc++.i686", "libstdc++-devel.i686")
+# Everything the codecs probe checks besides ffmpeg itself.
+CODEC_CHECKED = (*PCM_PACKAGES, *CODEC_TOOLING)
 HYPRLAND_PACKAGES = ("hyprland", "waybar", "wofi", "swaync", "grim", "slurp", "wl-clipboard",
                      "xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk", "hyprpicker")
 
@@ -75,6 +80,14 @@ def installed_rpms(names: tuple[str, ...]) -> set[str]:
     result = runner.run(["rpm", "-q", "--qf", "%{NAME}\n", *names], timeout=15)
     return {ln.strip() for ln in result.stdout.splitlines() if ln.strip() in names}
 
+def installed_rpm_specs(specs: tuple[str, ...]) -> set[str]:
+    """Like installed_rpms, but understands NAME.ARCH specs (e.g. 'libgcc.i686')."""
+    result = runner.run(["rpm", "-q", "--qf", "%{NAME}.%{ARCH}\n", *specs], timeout=15)
+    seen = {ln.strip() for ln in result.stdout.splitlines() if ln.strip()}
+    names = {entry.rsplit(".", 1)[0] for entry in seen}
+    arch_suffixes = (".i686", ".x86_64", ".noarch", ".aarch64")
+    return {s for s in specs if (s in seen if s.endswith(arch_suffixes) else s in names)}
+
 def is_flatpak_installed(app_id: str) -> bool:
     return runner.run(["flatpak", "info", app_id], timeout=8).returncode == 0
 
@@ -120,7 +133,7 @@ else
 fi
 {dnf} upgrade -y @multimedia --setopt=install_weak_deps=False \\
     --exclude=PackageKit-gstreamer-plugin || echo "(multimedia group update skipped)"
-{dnf} install -y {_skip_unavailable()} {" ".join((*CODEC_EXTRAS, *PCM_PACKAGES))}"""
+{dnf} install -y {_skip_unavailable()} {" ".join((*CODEC_EXTRAS, *CODEC_CHECKED))}"""
     return ["bash", "-c", script]
 
 def cmd_install_gaming_meta() -> list[str]:
@@ -183,8 +196,8 @@ def _probe_parallel() -> TweakState:
 
 def _probe_codecs(env: _Env) -> TweakState:
     if is_rpm_installed("ffmpeg"):
-        present = installed_rpms(PCM_PACKAGES)
-        missing = [p for p in PCM_PACKAGES if p not in present]
+        present = installed_rpm_specs(CODEC_CHECKED)
+        missing = [p for p in CODEC_CHECKED if p not in present]
         # "Missing…" note turns the card's button into "Complete install"
         return TweakState(active=True, note=f"Missing: {', '.join(missing)}" if missing else "")
     if not env.rpmfusion_free:
@@ -265,8 +278,9 @@ def build_registry(env_factory: Callable[[], _Env] = _env) -> list[Tweak]:
               "Apply", cmd_set_dnf_parallel_downloads, True, _probe_parallel, ("repos",)),
         Tweak("codecs", "Full multimedia codecs",
               "Swaps Fedora's patent-free ffmpeg-free for RPM Fusion's full ffmpeg "
-              "(H.264/HEVC/AAC playback and encoding), adds GStreamer plugins and PCM/WAV "
-              "support (GStreamer base+good, SoX, libsndfile tools).",
+              "(H.264/HEVC/AAC playback and encoding), adds GStreamer plugins, PCM/WAV "
+              "support (GStreamer base+good, SoX, libsndfile tools), CMake, Ninja, obs-build "
+              "and 32-bit (multilib) libraries.",
               "Install", cmd_install_multimedia_codecs, True, lambda: _probe_codecs(env()),
               ("packages", "repos")),
         Tweak("gaming", "Gaming Meta",

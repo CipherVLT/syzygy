@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "syzygy"
-version = "0.3.3"
+version = "0.3.4"
 description = "Modern package & system manager for Fedora Linux"
 readme = "README.md"
 requires-python = ">=3.11"

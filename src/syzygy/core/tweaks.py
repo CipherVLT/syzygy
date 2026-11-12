@@ -20,6 +20,10 @@ _X86_64_V3_FLAGS = {"avx", "avx2", "bmi1", "bmi2", "f16c", "fma", "movbe", "xsav
 GAMING_PACKAGES = ("steam", "lutris", "gamemode", "mangohud", "gamescope", "protontricks", "wine")
 CODEC_EXTRAS = ("gstreamer1-plugins-bad-freeworld", "gstreamer1-plugins-ugly",
                 "gstreamer1-plugin-libav", "lame")
+# Explicit PCM / WAV coverage: GStreamer base+good (audioconvert, wavparse/wavenc, rawaudio),
+# SoX for converting/resampling PCM, libsndfile tools for WAV/AIFF/FLAC PCM inspection.
+PCM_PACKAGES = ("gstreamer1-plugins-base", "gstreamer1-plugins-good", "sox",
+                "libsndfile-utils")
 # Fresh-install toolchain: enough to clone and build Syzygy and typical C/C++/CMake projects,
 # plus 32-bit (multilib) runtime + devel libraries for i686 builds and older software.
 BUILD_ESSENTIALS = (
@@ -124,7 +128,7 @@ else
 fi
 {dnf} upgrade -y @multimedia --setopt=install_weak_deps=False \\
     --exclude=PackageKit-gstreamer-plugin || echo "(multimedia group update skipped)"
-{dnf} install -y {_skip_unavailable()} {" ".join(CODEC_EXTRAS)}"""
+{dnf} install -y {_skip_unavailable()} {" ".join((*CODEC_EXTRAS, *PCM_PACKAGES))}"""
     return ["bash", "-c", script]
 
 def cmd_install_gaming_meta() -> list[str]:
@@ -192,7 +196,10 @@ def _probe_parallel() -> TweakState:
 
 def _probe_codecs(env: _Env) -> TweakState:
     if is_rpm_installed("ffmpeg"):
-        return TweakState(active=True)
+        present = installed_rpms(PCM_PACKAGES)
+        missing = [p for p in PCM_PACKAGES if p not in present]
+        # "Missing…" note turns the card's button into "Complete install"
+        return TweakState(active=True, note=f"Missing: {', '.join(missing)}" if missing else "")
     if not env.rpmfusion_free:
         return TweakState(
             active=False,
@@ -293,7 +300,8 @@ def build_registry(env_factory: Callable[[], _Env] = _env) -> list[Tweak]:
               "Apply", cmd_set_dnf_parallel_downloads, True, _probe_parallel, ("repos",)),
         Tweak("codecs", "Full multimedia codecs",
               "Swaps Fedora's patent-free ffmpeg-free for RPM Fusion's full ffmpeg "
-              "(H.264/HEVC/AAC playback and encoding).",
+              "(H.264/HEVC/AAC playback and encoding), adds GStreamer plugins and PCM/WAV "
+              "support (GStreamer base+good, SoX, libsndfile tools).",
               "Install", cmd_install_multimedia_codecs, True, lambda: _probe_codecs(env()),
               ("packages", "repos")),
         Tweak("gaming", "Gaming Meta",

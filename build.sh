@@ -3,6 +3,7 @@
 #
 #   ./build.sh            create/update .venv and install
 #   ./build.sh --run      ... then launch Syzygy
+#   ./build.sh --desktop  ... and install a desktop launcher for the current user
 #   ./build.sh --run -- --some-app-arg   (everything after -- is passed to the app)
 #
 # Environment overrides:
@@ -14,6 +15,7 @@ VENV="$ROOT/.venv"
 MIN_PY_MAJOR=3
 MIN_PY_MINOR=11
 RUN=0
+DESKTOP=0
 APP_ARGS=()
 
 if [[ -t 1 ]]; then
@@ -29,10 +31,12 @@ die()  { printf '%s✘  %s%s\n' "$C_ERR" "$*" "$C_RST" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-Usage: ./build.sh [--run] [-- APP_ARGS...]
+Usage: ./build.sh [--run] [--desktop] [-- APP_ARGS...]
 
   (no args)   Create .venv if missing, upgrade pip, pip install -e .
   --run       Launch Syzygy after a successful install
+  --desktop   Install a launcher into ~/.local/share/applications (fixes the portal
+              "App info not found for 'syzygy'" warning and shows Syzygy in the app grid)
   -h, --help  Show this help
 
 Set PYTHON=/path/to/python3.x to choose the interpreter (needs >= ${MIN_PY_MAJOR}.${MIN_PY_MINOR}).
@@ -42,6 +46,7 @@ EOF
 while (($#)); do
     case "$1" in
         --run) RUN=1 ;;
+        --desktop) DESKTOP=1 ;;
         -h|--help) usage; exit 0 ;;
         --) shift; APP_ARGS=("$@"); break ;;
         *) usage >&2; die "Unknown argument: $1" ;;
@@ -102,7 +107,18 @@ ok "Syzygy installed into .venv"
 printf '   Launch with: %s./build.sh --run%s  or  %s.venv/bin/syzygy%s\n' \
     "$C_INFO" "$C_RST" "$C_INFO" "$C_RST"
 
-# --- 3. run ----------------------------------------------------------------------------------
+# --- 3. desktop launcher (optional) ---------------------------------------------------------
+if ((DESKTOP)); then
+    APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    mkdir -p "$APPS_DIR"
+    # Point Exec at this checkout's venv so the launcher works without activating anything.
+    sed "s|^Exec=.*|Exec=$VENV/bin/syzygy|" "$ROOT/data/syzygy.desktop" > "$APPS_DIR/syzygy.desktop" \
+        || die "Could not write $APPS_DIR/syzygy.desktop"
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS_DIR" || true
+    ok "Desktop launcher installed: $APPS_DIR/syzygy.desktop"
+fi
+
+# --- 4. run ----------------------------------------------------------------------------------
 if ((RUN)); then
     if [[ -z "${WAYLAND_DISPLAY:-}" && -z "${DISPLAY:-}" ]]; then
         warn "No WAYLAND_DISPLAY or DISPLAY set – Qt may fail to open a window"

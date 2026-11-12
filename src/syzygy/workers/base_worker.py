@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 logger = logging.getLogger(__name__)

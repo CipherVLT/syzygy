@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import Slot
 from PySide6.QtGui import QCloseEvent, QFont, QTextCursor
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -42,6 +43,9 @@ class TaskDialog(QDialog):
         layout.addWidget(self.output, stretch=1)
 
         btn_row = QHBoxLayout()
+        self.btn_copy = QPushButton("Copy output")
+        self.btn_copy.clicked.connect(self._copy_output)
+        btn_row.addWidget(self.btn_copy)
         btn_row.addStretch()
         self.btn_close = QPushButton("Close")
         self.btn_close.setEnabled(False)
@@ -54,6 +58,10 @@ class TaskDialog(QDialog):
         self.output.moveCursor(QTextCursor.MoveOperation.End)
         self.output.insertPlainText(line + "\n")
         self.output.moveCursor(QTextCursor.MoveOperation.End)
+
+    @Slot()
+    def _copy_output(self) -> None:
+        QApplication.clipboard().setText(self.output.toPlainText())
 
     @property
     def is_running(self) -> bool:

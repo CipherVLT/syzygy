@@ -35,6 +35,8 @@ git clone <repo-url> syzygy && cd syzygy
 ./build.sh --run    # same, then launches Syzygy
 ```
 
+Add `./build.sh --desktop` to install an app-grid launcher for the current user.
+
 Or with make: `make install`, `make run`, `make clean` (removes `.venv`, `dist`, `build`, `*.egg-info`).
 
 If Qt reports it cannot load the `xcb` platform plugin on X11, install
@@ -57,10 +59,13 @@ src/syzygy/
 
 ## Project Status
 
-- **Core backend modules**: Complete
-- **Workers + TaskDialog**: Complete
-- **Main window + theming**: Complete
-- **Tab UIs**: Scaffold present; full vertical-slice implementations were developed in the original conversation and can be restored from there into `ui/tabs/*.py`
+- **All 10 tabs implemented** – every system call runs off the UI thread; privileged RPM/boot
+  actions go through `pkexec`, Flatpak and fwupd use their own polkit policies.
+- **Core backend** (`syzygy.core`): pure Python, no Qt – unit-testable.
+- **Shared UI**: `BasePage` (lazy loading, background queries, one-transaction-at-a-time),
+  `TaskDialog` with live output, `PackageCard`, `ActionCard`, Catppuccin Mocha/Latte themes.
+- Shortcuts: `Ctrl+F` search, `F5` refresh current tab, `Ctrl+Q` quit.
+- Planned: NVIDIA driver setup via NVIDIA's official `.run` installer.
 
 ## License
 

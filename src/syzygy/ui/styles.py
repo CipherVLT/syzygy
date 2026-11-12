@@ -90,16 +90,84 @@ QScrollArea, QScrollArea > QWidget > QWidget#scrollContents {
     background: transparent;
     border: none;
 }
-QFrame#packageCard {
+QFrame#packageCard, QFrame#card {
     background-color: #313244;
     border: 1px solid #313244;
     border-radius: 8px;
 }
-QFrame#packageCard:hover {
+QFrame#packageCard:hover, QFrame#card:hover {
     border: 1px solid #45475a;
 }
-QFrame#packageCard QLabel {
+QFrame#packageCard QLabel, QFrame#card QLabel, QFrame#card QCheckBox {
     background: transparent;
+}
+QFrame#card QLineEdit, QFrame#card QComboBox {
+    background-color: #1e1e2e;
+}
+QLabel#sectionTitle {
+    font-size: 14px;
+    font-weight: 700;
+    color: #cdd6f4;
+    padding-top: 6px;
+}
+QLabel#warningText {
+    color: #f9e2af;
+}
+QLabel#errorText {
+    color: #f38ba8;
+}
+QTableWidget {
+    background-color: #181825;
+    alternate-background-color: #1e1e2e;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    selection-background-color: #45475a;
+    selection-color: #cdd6f4;
+    gridline-color: #313244;
+}
+QTableWidget::item {
+    padding: 4px 6px;
+}
+QTableWidget::indicator, QListView::indicator {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid #45475a;
+    background-color: #313244;
+}
+QTableWidget::indicator:checked {
+    background-color: #89b4fa;
+    border: 1px solid #89b4fa;
+}
+QHeaderView::section {
+    background-color: #313244;
+    color: #a6adc8;
+    padding: 6px 8px;
+    border: none;
+    border-right: 1px solid #1e1e2e;
+    font-weight: 600;
+}
+QTableCornerButton::section {
+    background-color: #313244;
+    border: none;
+}
+QPlainTextEdit {
+    background-color: #11111b;
+    color: #cdd6f4;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    font-family: "JetBrains Mono", monospace;
+    font-size: 12px;
+}
+QTabWidget#subTabs::pane {
+    border: none;
+    background: transparent;
+}
+QToolTip {
+    background-color: #313244;
+    color: #cdd6f4;
+    border: 1px solid #45475a;
+    padding: 4px;
 }
 QLabel#pageTitle {
     font-size: 18px;
@@ -208,6 +276,7 @@ _MOCHA_TO_LATTE: dict[str, str] = {
     "#b4befe": "#7287fd",  # lavender
     "#f38ba8": "#d20f39",  # red
     "#a6e3a1": "#40a02b",  # green
+    "#f9e2af": "#df8e1d",  # yellow
 }
 _HEX_RE = re.compile("|".join(re.escape(k) for k in _MOCHA_TO_LATTE), re.IGNORECASE)
 

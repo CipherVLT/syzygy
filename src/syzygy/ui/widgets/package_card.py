@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 
 from syzygy.core.models import Package, PackageSource, PackageStatus
 from syzygy.ui.widgets.badge import BLUE, GREEN, MAUVE, PEACH, SURFACE1, YELLOW, Badge
+from syzygy.ui.widgets.effects import install_hover_glow
 
 ACTION_INSTALL = "install"
 ACTION_REMOVE = "remove"
@@ -57,7 +58,9 @@ class PackageCard(QFrame):
         show_update_action: bool = False,
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("packageCard")  # styled globally in ui/styles.py
+        self.setObjectName("packageCard")  # styled globally in ui/theme.py
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        install_hover_glow(self)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         self._package = package
         self._show_update_action = show_update_action
@@ -67,7 +70,7 @@ class PackageCard(QFrame):
         self._locked_reason = ""
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(14, 10, 14, 10)
+        root.setContentsMargins(16, 12, 16, 12)
         root.setSpacing(12)
 
         info = QVBoxLayout()
@@ -185,7 +188,7 @@ class PackageCard(QFrame):
             self.action_btn.setText(self._busy_text or label[action])
             self.action_btn.setEnabled(self._actions_enabled and self._busy_text is None)
             self.action_btn.setToolTip("")
-        # Property-driven QSS (styles.py) needs an explicit re-polish when the value changes.
+        # Property-driven QSS (theme.py) needs an explicit re-polish when the value changes.
         self.action_btn.setProperty("primary", action in (ACTION_INSTALL, ACTION_UPDATE))
         self.action_btn.setProperty("danger", action == ACTION_REMOVE)
         style = self.action_btn.style()

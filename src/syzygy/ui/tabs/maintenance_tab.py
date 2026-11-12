@@ -6,13 +6,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import Slot
-from PySide6.QtWidgets import QGridLayout, QLabel, QWidget
+from PySide6.QtWidgets import QGridLayout, QLabel, QVBoxLayout, QWidget
 
 from syzygy.core import flatpak, maintenance
 from syzygy.core.maintenance import MaintenanceStats
 from syzygy.ui.widgets.action_card import ActionCard
 from syzygy.ui.widgets.badge import BLUE, MAUVE, PEACH, TEAL
 from syzygy.ui.widgets.page import SCOPE_FLATPAK, SCOPE_PACKAGES, BasePage
+from syzygy.ui.widgets.sidebar import SidebarItem, SidebarSplit, heading
 
 
 @dataclass(frozen=True)
@@ -98,10 +99,17 @@ class MaintenanceTab(BasePage):
         super().__init__("Maintenance", "Housekeeping with live output", parent)
         self._cards: dict[str, ActionCard] = {}
 
+        self.split = SidebarSplit(sidebar_width=200)
+        self.split.selected.connect(self._filter)
+
+        content = QWidget()
         scroll, column = self.make_scroll_column()
-        grid = QGridLayout()
-        grid.setSpacing(10)
-        for index, action in enumerate(ACTIONS):
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.addWidget(scroll)
+        self.grid = QGridLayout()
+        self.grid.setSpacing(12)
+        for action in ACTIONS:
             card = ActionCard(action.title, action.description)
             card.add_badge(action.category, _CATEGORY_COLORS.get(action.category, BLUE))
             if action.use_pkexec:
@@ -111,15 +119,35 @@ class MaintenanceTab(BasePage):
             btn.clicked.connect(lambda _c=False, a=action: self._run(a))
             self.track(btn)
             self._cards[action.key] = card
-            grid.addWidget(card, index // 2, index % 2)
-        column.addLayout(grid)
+        column.addLayout(self.grid)
         note = QLabel("Actions marked “admin” ask for your password via polkit. Output streams "
                       "live; you can copy it from the dialog.")
         note.setObjectName("hintText")
         note.setWordWrap(True)
         column.addWidget(note)
         column.addStretch()
-        self.root.addWidget(scroll, stretch=1)
+        self.split.add_page("grid", content)
+        self.root.addWidget(self.split, stretch=1)
+
+        categories: dict[str, int] = {}
+        for action in ACTIONS:
+            categories[action.category] = categories.get(action.category, 0) + 1
+        self.split.set_items([
+            heading("Categories"),
+            SidebarItem("all", "All tasks", "grid", len(ACTIONS)),
+            *[SidebarItem(cat, cat, "grid", count) for cat, count in categories.items()],
+        ])
+
+    @Slot(str)
+    def _filter(self, key: str) -> None:
+        for card in self._cards.values():
+            self.grid.removeWidget(card)
+            card.hide()
+        visible = [a for a in ACTIONS if key == "all" or a.category == key]
+        for index, action in enumerate(visible):
+            card = self._cards[action.key]
+            self.grid.addWidget(card, index // 2, index % 2)
+            card.show()
 
     @Slot()
     def refresh(self) -> None:

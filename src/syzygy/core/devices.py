@@ -4,15 +4,21 @@ from __future__ import annotations
 
 import json
 import logging
+import platform
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from syzygy.core.system import runner
 
 logger = logging.getLogger(__name__)
 
+PCI_SYSFS = Path("/sys/bus/pci/devices")
+USB_SYSFS = Path("/sys/bus/usb/devices")
+NET_SYSFS = Path("/sys/class/net")
+MODULE_SYSFS = Path("/sys/module")
+ASOUND_CARDS = Path("/proc/asound/cards")
 SECURE_BOOT_VAR = Path(
     "/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c"
 )
@@ -159,7 +165,7 @@ def summarize_pci(lspci_output: str) -> str:
 def get_lspci() -> str:
     if shutil.which("lspci") is None:
         return ""
-    return runner.run(["lspci", "-nnk"], timeout=15).stdout
+    return runner.run(["lspci", "-Dnnk"], timeout=15).stdout
 
 
 def get_pci_summary() -> str:
@@ -167,11 +173,263 @@ def get_pci_summary() -> str:
     return summarize_pci(output) if output else "lspci not available (sudo dnf install pciutils)"
 
 
+# ---------------------------------------------------------------------- full PCI inventory
+_PCI_HEAD_RE = re.compile(r"^(\S+)\s+(.+?)\s+\[([0-9a-fA-F]{4})\]:\s+(.*)$")
+_PCI_IDS_RE = re.compile(r"\[([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\]")
+_PCI_REV_RE = re.compile(r"\s*\(rev ([0-9a-fA-F]+)\)\s*$")
+
+
+@dataclass(slots=True, frozen=True)
+class PciDevice:
+    slot: str  # 0000:01:00.0
+    class_name: str  # "VGA compatible controller"
+    class_code: str  # "0300"
+    description: str  # "NVIDIA Corporation AD104 [GeForce RTX 4070]"
+    vendor_id: str = ""
+    device_id: str = ""
+    revision: str = ""
+    subsystem: str = ""
+    driver: str = ""
+    modules: str = ""
+
+    @property
+    def category(self) -> str:
+        return self.class_name or f"PCI Class {self.class_code}"
+
+    @property
+    def is_gpu(self) -> bool:
+        return self.class_code.startswith("03")
+
+
+def parse_pci_devices(lspci_output: str) -> list[PciDevice]:
+    """Parse ``lspci -Dnnk`` (also accepts output without -D)."""
+    devices: list[PciDevice] = []
+    for block in _pci_blocks(lspci_output):
+        match = _PCI_HEAD_RE.match(block[0])
+        if not match:
+            continue
+        slot, class_name, class_code, rest = match.groups()
+        revision = ""
+        rev = _PCI_REV_RE.search(rest)
+        if rev:
+            revision = rev.group(1)
+            rest = rest[: rev.start()]
+        vendor_id = device_id = ""
+        ids = _PCI_IDS_RE.findall(rest)
+        if ids:
+            vendor_id, device_id = ids[-1]
+            rest = rest[: rest.rfind("[" + vendor_id)].rstrip()
+        driver = modules = subsystem = ""
+        for line in block[1:]:
+            key, _, value = line.strip().partition(":")
+            value = value.strip()
+            if key == "Kernel driver in use":
+                driver = value
+            elif key == "Kernel modules":
+                modules = value
+            elif key == "Subsystem":
+                subsystem = _PCI_IDS_RE.sub("", value).strip()
+        if slot.count(":") == 1:
+            slot = f"0000:{slot}"
+        devices.append(PciDevice(
+            slot=slot, class_name=class_name.strip(), class_code=class_code.lower(),
+            description=rest.strip(), vendor_id=vendor_id.lower(), device_id=device_id.lower(),
+            revision=revision, subsystem=subsystem, driver=driver, modules=modules,
+        ))
+    return devices
+
+
+def _read(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def module_version(module: str, sysfs: Path = MODULE_SYSFS) -> str:
+    """Out-of-tree modules (nvidia …) expose a version; in-tree ones follow the kernel."""
+    if not module:
+        return ""
+    version = _read(sysfs / module / "version")
+    if version:
+        return version
+    if shutil.which("modinfo"):
+        out = runner.run(["modinfo", "-F", "version", module], timeout=5).stdout.strip()
+        if out:
+            return out
+    return f"in-kernel ({platform.release()})" if (sysfs / module).exists() else ""
+
+
+@dataclass(slots=True, frozen=True)
+class PciDetails:
+    enabled: bool | None
+    driver_version: str
+    iommu_group: str
+    link: str  # "16.0 GT/s PCIe x16"
+    numa_node: str
+
+
+def get_pci_details(device: PciDevice, sysfs: Path = PCI_SYSFS) -> PciDetails:
+    base = sysfs / device.slot
+    enable = _read(base / "enable")
+    iommu = ""
+    try:
+        iommu = (base / "iommu_group").resolve().name if (base / "iommu_group").exists() else ""
+    except OSError:
+        iommu = ""
+    speed, width = _read(base / "current_link_speed"), _read(base / "current_link_width")
+    link = f"{speed} x{width}" if speed and width and width != "0" else ""
+    numa = _read(base / "numa_node")
+    return PciDetails(
+        enabled=None if enable == "" else enable == "1",
+        driver_version=module_version(device.driver),
+        iommu_group=iommu,
+        link=link,
+        numa_node="" if numa in ("", "-1") else numa,
+    )
+
+
+# ---------------------------------------------------------------------- USB (sysfs, no tools)
+USB_CLASSES = {
+    "01": "Audio", "02": "Communications", "03": "HID (Human Interface Device)",
+    "05": "Physical", "06": "Imaging", "07": "Printer", "08": "Mass Storage", "09": "Hub",
+    "0a": "CDC Data", "0b": "Smart Card", "0d": "Content Security", "0e": "Video",
+    "0f": "Personal Healthcare", "10": "Audio/Video", "11": "Billboard", "dc": "Diagnostic",
+    "e0": "Wireless Controller", "ef": "Miscellaneous", "fe": "Application Specific",
+    "ff": "Vendor Specific",
+}
+
+
+@dataclass(slots=True, frozen=True)
+class UsbDevice:
+    path: str  # sysfs name, e.g. "1-4.2"
+    bus: str
+    devnum: str
+    vendor_id: str
+    product_id: str
+    manufacturer: str
+    product: str
+    class_code: str
+    speed: str = ""
+    usb_version: str = ""
+    drivers: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def class_name(self) -> str:
+        return USB_CLASSES.get(self.class_code, f"USB Class {self.class_code.upper()}")
+
+    @property
+    def name(self) -> str:
+        label = " ".join(p for p in (self.manufacturer, self.product) if p)
+        return label or f"USB device {self.vendor_id}:{self.product_id}"
+
+
+def list_usb_devices(sysfs: Path = USB_SYSFS) -> list[UsbDevice]:
+    if not sysfs.is_dir():
+        return []
+    devices: list[UsbDevice] = []
+    for entry in sorted(sysfs.iterdir(), key=lambda p: p.name):
+        name = entry.name
+        if ":" in name or name.startswith("usb"):
+            continue  # interfaces and root hubs
+        vendor = _read(entry / "idVendor").lower()
+        if not vendor:
+            continue
+        interfaces = sorted(sysfs.glob(f"{name}:*"))
+        iface_classes = [_read(i / "bInterfaceClass").lower() for i in interfaces]
+        drivers = tuple(sorted({
+            (i / "driver").resolve().name for i in interfaces if (i / "driver").exists()
+        }))
+        dev_class = _read(entry / "bDeviceClass").lower()
+        if dev_class in ("", "00", "ef"):
+            useful = [c for c in iface_classes if c and c != "09"]
+            dev_class = useful[0] if useful else (iface_classes[0] if iface_classes else "00")
+        speed = _read(entry / "speed")
+        devices.append(UsbDevice(
+            path=name,
+            bus=_read(entry / "busnum"),
+            devnum=_read(entry / "devnum"),
+            vendor_id=vendor,
+            product_id=_read(entry / "idProduct").lower(),
+            manufacturer=_read(entry / "manufacturer"),
+            product=_read(entry / "product"),
+            class_code=dev_class,
+            speed=f"{speed} Mb/s" if speed else "",
+            usb_version=_read(entry / "version"),
+            drivers=drivers,
+        ))
+    return devices
+
+
+# ---------------------------------------------------------------------- audio / network
+@dataclass(slots=True, frozen=True)
+class AudioCard:
+    index: str
+    card_id: str
+    driver: str
+    name: str
+
+
+def parse_asound_cards(text: str) -> list[AudioCard]:
+    cards: list[AudioCard] = []
+    for line in text.splitlines():
+        match = re.match(r"^\s*(\d+)\s+\[([^\]]+)\]:\s*(\S+)\s+-\s+(.*)$", line)
+        if match:
+            index, card_id, driver, name = match.groups()
+            cards.append(AudioCard(index, card_id.strip(), driver, name.strip()))
+    return cards
+
+
+def get_audio_server() -> str:
+    if shutil.which("pactl") is None:
+        return ""
+    for line in runner.run(["pactl", "info"], timeout=5).stdout.splitlines():
+        if line.startswith("Server Name:"):
+            return line.partition(":")[2].strip()
+    return ""
+
+
+@dataclass(slots=True, frozen=True)
+class NetInterface:
+    name: str
+    mac: str
+    state: str
+    driver: str
+    wireless: bool
+    speed: str = ""
+
+
+def list_net_interfaces(sysfs: Path = NET_SYSFS) -> list[NetInterface]:
+    if not sysfs.is_dir():
+        return []
+    result: list[NetInterface] = []
+    for entry in sorted(sysfs.iterdir(), key=lambda p: p.name):
+        if entry.name == "lo" or not (entry / "device").exists():
+            continue  # skip loopback and virtual interfaces (bridges, tun, veth…)
+        driver_link = entry / "device" / "driver"
+        speed = _read(entry / "speed")
+        result.append(NetInterface(
+            name=entry.name,
+            mac=_read(entry / "address"),
+            state=_read(entry / "operstate"),
+            driver=driver_link.resolve().name if driver_link.exists() else "",
+            wireless=(entry / "wireless").exists() or (entry / "phy80211").exists(),
+            speed=f"{speed} Mb/s" if speed and not speed.startswith("-") else "",
+        ))
+    return result
+
+
 @dataclass(slots=True, frozen=True)
 class HardwareReport:
     gpus: list[GpuInfo]
     pci_summary: str
     secure_boot: bool | None
+    pci: list[PciDevice] = field(default_factory=list)
+    usb: list[UsbDevice] = field(default_factory=list)
+    audio_cards: list[AudioCard] = field(default_factory=list)
+    audio_server: str = ""
+    interfaces: list[NetInterface] = field(default_factory=list)
+    lspci_raw: str = ""
 
 
 def get_hardware_report() -> HardwareReport:
@@ -181,6 +439,12 @@ def get_hardware_report() -> HardwareReport:
         pci_summary=summarize_pci(output) if output else "lspci not available "
         "(sudo dnf install pciutils)",
         secure_boot=get_secure_boot_state(),
+        pci=parse_pci_devices(output),
+        usb=list_usb_devices(),
+        audio_cards=parse_asound_cards(_read(ASOUND_CARDS)),
+        audio_server=get_audio_server(),
+        interfaces=list_net_interfaces(),
+        lspci_raw=output,
     )
 
 

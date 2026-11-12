@@ -78,6 +78,7 @@ class TweaksTab(BasePage):
         card = self._cards[tweak.id]
         btn = self._buttons[tweak.id]
         card.clear_badges()
+        card.set_accent("green" if state.active else None)
         if state.active:
             card.add_badge("Active", GREEN)
         elif state.available:

@@ -42,6 +42,21 @@ Or with make: `make install`, `make run`, `make clean` (removes `.venv`, `dist`,
 If Qt reports it cannot load the `xcb` platform plugin on X11, install
 `sudo dnf install xcb-util-cursor`.
 
+## Themes
+
+Click the **◐** pill (top right) to cycle **Glass → Mocha → Latte**; the choice is remembered.
+
+- **Glass** – translucent dark acrylic. Qt paints semi-transparent surfaces; the frosted
+  *blur* comes from your Wayland compositor. Enable blur there (e.g. Hyprland:
+  `decoration { blur { enabled = true } }`) and it applies to Syzygy (app-id `syzygy`).
+  Without compositor blur it renders as tinted see-through glass.
+- **Mocha / Latte** – opaque Catppuccin dark / light.
+- `SYZYGY_GLASS=0 syzygy` starts with translucency disabled (for X11 without a compositor or
+  if your desktop draws translucent windows badly).
+
+Shortcuts: `Ctrl+F` search · `F5` refresh tab · `Alt+1…0` jump to tab ·
+`Ctrl+Tab` / `Ctrl+PgDn` next tab · `Ctrl+Q` quit.
+
 ## Architecture
 
 ```

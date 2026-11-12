@@ -33,8 +33,8 @@ class Badge(QLabel):
 
     def set_colors(self, color: str, foreground: str = BASE) -> None:
         self.setStyleSheet(
-            f"background-color: {color}; color: {foreground}; border-radius: 8px;"
-            " padding: 1px 8px; font-size: 11px; font-weight: 600;"
+            f"background-color: {color}; color: {foreground}; border-radius: 9px;"
+            " padding: 2px 9px; font-size: 11px; font-weight: 600;"
         )
 
     def update_badge(self, text: str, color: str, foreground: str = BASE) -> None:

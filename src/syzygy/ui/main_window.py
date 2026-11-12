@@ -2,22 +2,22 @@ from __future__ import annotations
 
 import logging
 
-from PySide6.QtCore import Slot
+from PySide6.QtCore import Qt, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QStatusBar,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from syzygy.ui.styles import apply_theme
+from syzygy.ui import theme
 from syzygy.ui.tabs.devices_tab import DevicesTab
 from syzygy.ui.tabs.flatpak_tab import FlatpakTab
 from syzygy.ui.tabs.fpm_tab import FpmTab
@@ -28,6 +28,7 @@ from syzygy.ui.tabs.repos_tab import ReposTab
 from syzygy.ui.tabs.search_tab import SearchTab
 from syzygy.ui.tabs.tweaks_tab import TweaksTab
 from syzygy.ui.tabs.updates_tab import UpdatesTab
+from syzygy.ui.widgets.nav_pills import NavPills
 from syzygy.ui.widgets.page import SCOPE_FLATPAK, SCOPE_PACKAGES, BasePage
 
 logger = logging.getLogger(__name__)
@@ -42,27 +43,40 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Syzygy – Package Manager")
         self.resize(1280, 840)
         self.setMinimumSize(1024, 680)
-        self._dark_theme = True
+        if theme.is_translucent():
+            # Lets the compositor show (and blur) the desktop behind the glass root frame.
+            self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self._setup_ui()
         self._setup_actions()
-        self._setup_statusbar()
         self._wire_tabs()
 
     # ================================================================== layout
     def _setup_ui(self) -> None:
-        central = QWidget()
-        self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        holder = QWidget()
+        self.setCentralWidget(holder)
+        outer = QVBoxLayout(holder)
+        outer.setContentsMargins(0, 0, 0, 0)
 
+        root = QFrame()
+        root.setObjectName("glassRoot")
+        outer.addWidget(root)
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(14, 10, 14, 4)
+        layout.setSpacing(10)
+
+        # Row 1: brand (left) · utility pills (right)
         top = QHBoxLayout()
+        top.setSpacing(8)
         title = QLabel("Syzygy")
-        title.setObjectName("pageTitle")
+        title.setObjectName("appTitle")
+        subtitle = QLabel("Fedora system manager")
+        subtitle.setObjectName("appSubtitle")
         top.addWidget(title)
+        top.addWidget(subtitle)
         top.addStretch()
-        self.btn_theme = QPushButton("Light")
-        self.btn_theme.setToolTip("Switch between Catppuccin Mocha and Latte")
+        self.btn_theme = QPushButton()
+        self.btn_theme.setObjectName("utilityPill")
+        self.btn_theme.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_theme.clicked.connect(self.toggle_theme)
         top.addWidget(self.btn_theme)
         layout.addLayout(top)
@@ -83,8 +97,8 @@ class MainWindow(QMainWindow):
             self.kernels_tab, self.devices_tab, self.fpm_tab, self.tweaks_tab,
         ]
 
-        self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True)
+        # Row 2: navigation pills; below: pages
+        self.tabs = NavPills(self)
         for widget, label in (
             (self.search_tab, "Search"),
             (self.installed_tab, "Installed"),
@@ -98,7 +112,16 @@ class MainWindow(QMainWindow):
             (self.tweaks_tab, "Tweaks"),
         ):
             self.tabs.addTab(widget, label)
-        layout.addWidget(self.tabs)
+        layout.addWidget(self.tabs.bar)
+        layout.addWidget(self.tabs.stack, stretch=1)
+
+        # Status bar lives inside the glass frame (a QMainWindow status bar would sit on the
+        # fully transparent window area).
+        self.status = QStatusBar()
+        self.status.setSizeGripEnabled(False)
+        self.status.showMessage("Ready")
+        layout.addWidget(self.status)
+        self._update_theme_button()
 
     def _setup_actions(self) -> None:
         quit_action = QAction("Quit", self)
@@ -111,15 +134,22 @@ class MainWindow(QMainWindow):
         find_action.triggered.connect(self._focus_search)
         self.addAction(find_action)
 
+        for seq, delta in (("Ctrl+PgDown", 1), ("Ctrl+PgUp", -1), ("Ctrl+Tab", 1),
+                           ("Ctrl+Shift+Tab", -1)):
+            step_action = QAction(self)
+            step_action.setShortcut(QKeySequence(seq))
+            step_action.triggered.connect(lambda _c=False, d=delta: self.tabs.step(d))
+            self.addAction(step_action)
+        for number in range(1, 11):
+            jump = QAction(self)
+            jump.setShortcut(QKeySequence(f"Alt+{number % 10}"))
+            jump.triggered.connect(lambda _c=False, i=number - 1: self.tabs.setCurrentIndex(i))
+            self.addAction(jump)
+
         refresh_action = QAction("Refresh current tab", self)
         refresh_action.setShortcut(QKeySequence.StandardKey.Refresh)  # F5
         refresh_action.triggered.connect(self._refresh_current)
         self.addAction(refresh_action)
-
-    def _setup_statusbar(self) -> None:
-        self.status = QStatusBar()
-        self.setStatusBar(self.status)
-        self.status.showMessage("Ready")
 
     # ================================================================== cross-tab wiring
     def _wire_tabs(self) -> None:
@@ -199,13 +229,19 @@ class MainWindow(QMainWindow):
                 return
         super().closeEvent(event)
 
+    def _update_theme_button(self) -> None:
+        name = theme.current_theme()
+        self.btn_theme.setText(f"◐  {theme.THEME_LABELS[name]}")
+        tip = f"Theme: {theme.THEME_LABELS[name]} – click for {theme.THEME_LABELS[theme.next_theme(name)]}"
+        if name == theme.THEME_GLASS and not theme.is_translucent():
+            tip += "\n(translucency is off: started with SYZYGY_GLASS=0)"
+        self.btn_theme.setToolTip(tip)
+
     @Slot()
     def toggle_theme(self) -> None:
-        self._dark_theme = not self._dark_theme
         app = QApplication.instance()
-        if isinstance(app, QApplication):
-            apply_theme(app, dark=self._dark_theme)
-        self.btn_theme.setText("Dark" if not self._dark_theme else "Light")
-        self.status.showMessage(
-            f"Switched to {'dark' if self._dark_theme else 'light'} theme", 2500
-        )
+        if not isinstance(app, QApplication):
+            return
+        name = theme.apply_theme(app, theme.next_theme(theme.current_theme()))
+        self._update_theme_button()
+        self.status.showMessage(f"Theme: {theme.THEME_LABELS[name]}", 2500)

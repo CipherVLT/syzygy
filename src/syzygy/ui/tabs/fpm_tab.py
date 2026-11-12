@@ -5,7 +5,7 @@ from __future__ import annotations
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Slot
+from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,8 +14,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
-    QPushButton,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -24,7 +22,9 @@ from syzygy.core import flatpak, fpm
 from syzygy.core.flatpak import FlatpakEntry
 from syzygy.core.fpm import FlatpakRemote
 from syzygy.ui.widgets.action_card import ActionCard
-from syzygy.ui.widgets.page import SCOPE_FLATPAK, BasePage, SortItem, make_table
+from syzygy.ui.widgets.badge import BLUE, GREEN, SURFACE1, YELLOW
+from syzygy.ui.widgets.page import SCOPE_FLATPAK, BasePage
+from syzygy.ui.widgets.sidebar import SidebarItem, SidebarSplit, heading
 
 
 def _load() -> tuple[list[FlatpakRemote], list[FlatpakEntry]]:
@@ -39,34 +39,28 @@ class FpmTab(BasePage):
         self._remotes: list[FlatpakRemote] = []
         self._apps: list[FlatpakEntry] = []
 
-        self.tabs = QTabWidget()
-        self.tabs.setObjectName("subTabs")
-        self.tabs.addTab(self._build_remotes_page(), "Remotes")
-        self.tabs.addTab(self._build_install_page(), "Install from file")
-        self.tabs.addTab(self._build_permissions_page(), "Permissions")
-        self.root.addWidget(self.tabs, stretch=1)
+        self._remote_cards: list[QWidget] = []
+
+        self.split = SidebarSplit(sidebar_width=210)
+        self.split.add_page("remotes", self._build_remotes_page())
+        self.split.add_page("install", self._build_install_page())
+        self.split.add_page("permissions", self._build_permissions_page())
+        self.root.addWidget(self.split, stretch=1)
+        self._set_sidebar()
+
+    def _set_sidebar(self) -> None:
+        self.split.set_items([
+            heading("Flatpak"),
+            SidebarItem("remotes", "Remotes", "remotes", len(self._remotes) or None),
+            SidebarItem("install", "Install from file", "install"),
+            SidebarItem("permissions", "Permissions", "permissions", len(self._apps) or None),
+        ])
 
     # ================================================================== pages
     def _build_remotes_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 0)
-
-        self.remotes_table = make_table(["Name", "Title", "URL", "Installation", "Status"],
-                                        stretch_column=2)
-        self.remotes_table.itemSelectionChanged.connect(self._sync_remote_buttons)
-        layout.addWidget(self.remotes_table, stretch=1)
-
-        buttons = QHBoxLayout()
-        self.toggle_remote_btn = QPushButton("Disable")
-        self.toggle_remote_btn.clicked.connect(self._toggle_remote)
-        self.remove_remote_btn = QPushButton("Remove remote")
-        self.remove_remote_btn.setProperty("danger", True)
-        self.remove_remote_btn.clicked.connect(self._remove_remote)
-        buttons.addStretch()
-        buttons.addWidget(self.toggle_remote_btn)
-        buttons.addWidget(self.remove_remote_btn)
-        layout.addLayout(buttons)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         add_card = ActionCard("Add remote", "Name plus a repository URL or .flatpakrepo URL.")
         self.remote_name = QLineEdit()
@@ -83,15 +77,17 @@ class FpmTab(BasePage):
         self.add_remote_btn.clicked.connect(self._add_remote)
         layout.addWidget(add_card)
 
-        self.track(self.toggle_remote_btn, self.remove_remote_btn, self.add_remote_btn,
-                   self.remote_name, self.remote_url, self.remote_user)
-        self._sync_remote_buttons()
+        scroll, self.remotes_column = self.make_scroll_column()
+        self.remotes_column.addStretch()
+        layout.addWidget(scroll, stretch=1)
+
+        self.track(self.add_remote_btn, self.remote_name, self.remote_url, self.remote_user)
         return page
 
     def _build_install_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
         card = ActionCard(
             "Install a local Flatpak file",
             "• .flatpakref – a reference to an app in a remote (installs from the network)\n"
@@ -115,7 +111,7 @@ class FpmTab(BasePage):
     def _build_permissions_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         row = QHBoxLayout()
         row.addWidget(QLabel("App:"))
@@ -173,61 +169,49 @@ class FpmTab(BasePage):
         self.app_combo.blockSignals(False)
         self._on_app_changed()
 
+        self._set_sidebar()
         enabled = sum(r.is_enabled for r in remotes)
         self.set_status(f"{len(remotes)} remotes ({enabled} enabled)   ·   "
                         f"{len(apps)} apps installed")
 
     def _render_remotes(self) -> None:
-        table = self.remotes_table
-        table.setSortingEnabled(False)
-        table.setRowCount(0)
+        for card in self._remote_cards:
+            self.remotes_column.removeWidget(card)
+            card.deleteLater()
+        self._remote_cards.clear()
         for remote in self._remotes:
-            row = table.rowCount()
-            table.insertRow(row)
-            name = SortItem(remote.name)
-            name.setData(Qt.ItemDataRole.UserRole, remote)
-            table.setItem(row, 0, name)
-            table.setItem(row, 1, SortItem(remote.title))
-            table.setItem(row, 2, SortItem(remote.url))
-            table.setItem(row, 3, SortItem(remote.installation))
-            status = "Enabled" if remote.is_enabled else "Disabled"
+            card = ActionCard(remote.title or remote.name, remote.url)
+            card.add_badge(remote.name, SURFACE1)
+            card.add_badge(remote.installation, BLUE)
+            if remote.is_enabled:
+                card.add_badge("Enabled", GREEN)
+                card.set_accent("green")
+            else:
+                card.add_badge("Disabled", SURFACE1)
             if "filtered" in remote.options:
-                status += " (filtered)"
-            table.setItem(row, 4, SortItem(status))
-        table.setSortingEnabled(True)
-        self._sync_remote_buttons()
-
-    # ================================================================== remotes
-    def _selected_remote(self) -> FlatpakRemote | None:
-        rows = {i.row() for i in self.remotes_table.selectedItems()}
-        if len(rows) != 1:
-            return None
-        item = self.remotes_table.item(rows.pop(), 0)
-        remote = item.data(Qt.ItemDataRole.UserRole) if item else None
-        return remote if isinstance(remote, FlatpakRemote) else None
-
-    def _sync_remote_buttons(self) -> None:
-        if self.busy:
-            return
-        remote = self._selected_remote()
-        self.toggle_remote_btn.setEnabled(remote is not None)
-        self.remove_remote_btn.setEnabled(remote is not None)
-        self.toggle_remote_btn.setText("Enable" if remote and not remote.is_enabled
-                                       else "Disable")
+                card.add_badge("Filtered", YELLOW)
+            toggle = card.add_button("Disable" if remote.is_enabled else "Enable",
+                                     primary=not remote.is_enabled)
+            toggle.clicked.connect(lambda _c=False, r=remote: self._toggle_remote(r))
+            remove = card.add_button("Remove", danger=True)
+            remove.clicked.connect(lambda _c=False, r=remote: self._remove_remote(r))
+            self.track(toggle, remove)
+            self.remotes_column.insertWidget(self.remotes_column.count() - 1, card)
+            self._remote_cards.append(card)
+        if not self._remotes:
+            card = ActionCard("No Flatpak remotes",
+                              "Add Flathub from the Repos tab or with the form above.")
+            self.remotes_column.insertWidget(0, card)
+            self._remote_cards.append(card)
 
     def on_busy_changed(self, busy: bool) -> None:
         if not busy:
-            self._sync_remote_buttons()
             self.install_file_btn.setEnabled(fpm.bundle_kind(self.file_edit.text()) is not None)
             has_app = bool(self._current_app())
             for widget in (self.grant_btn, self.revoke_btn, self.reset_btn):
                 widget.setEnabled(has_app)
 
-    @Slot()
-    def _toggle_remote(self) -> None:
-        remote = self._selected_remote()
-        if remote is None:
-            return
+    def _toggle_remote(self, remote: FlatpakRemote) -> None:
         enable = not remote.is_enabled
         confirm = None
         if not enable and remote.name == "flathub":
@@ -240,11 +224,7 @@ class FpmTab(BasePage):
             success_message=f"Remote {remote.name} {'enabled' if enable else 'disabled'}",
         )
 
-    @Slot()
-    def _remove_remote(self) -> None:
-        remote = self._selected_remote()
-        if remote is None:
-            return
+    def _remove_remote(self, remote: FlatpakRemote) -> None:
         self.run_task(
             f"Removing remote {remote.name}",
             fpm.cmd_remove_remote(remote.name, remote.installation),

@@ -63,8 +63,11 @@ class KernelsTab(BasePage):
             card = ActionCard(entry.version)
             if entry.is_running:
                 card.add_badge("Running", GREEN)
+                card.set_accent("green")
             if entry.is_default:
                 card.add_badge("Default", BLUE)
+                if not entry.is_running:
+                    card.set_accent("blue")
             if entry.flavor != "kernel":
                 card.add_badge(entry.flavor.removeprefix("kernel-"), PEACH)
             if index == 0:

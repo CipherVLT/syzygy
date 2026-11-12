@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from syzygy.ui.widgets.badge import Badge
+from syzygy.ui.widgets.effects import install_hover_glow
 
 
 class ActionCard(QFrame):
@@ -24,12 +25,14 @@ class ActionCard(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("card")  # styled globally in ui/styles.py
+        self.setObjectName("card")  # styled globally in ui/theme.py
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        install_hover_glow(self)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(14, 12, 14, 12)
-        root.setSpacing(6)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(7)
 
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
@@ -60,6 +63,19 @@ class ActionCard(QFrame):
         self.button_row.setSpacing(8)
         self.button_row.addStretch()
         root.addLayout(self.button_row)
+
+    # ------------------------------------------------------------------ accent
+    def set_accent(self, accent: str | None) -> None:
+        """Coloured left edge: "blue" | "green" | "yellow" | "red" | None."""
+        self.setProperty("accent", accent or "")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def set_title_link_style(self, enabled: bool = True) -> None:
+        """Accent-coloured title (Rustora profile cards)."""
+        self.title_lbl.setObjectName("cardTitleLink" if enabled else "cardName")
+        self.title_lbl.style().unpolish(self.title_lbl)
+        self.title_lbl.style().polish(self.title_lbl)
 
     # ------------------------------------------------------------------ badges
     def add_badge(self, text: str, color: str) -> Badge:

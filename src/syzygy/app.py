@@ -7,8 +7,8 @@ import sys
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
+from syzygy.ui import theme
 from syzygy.ui.main_window import MainWindow
-from syzygy.ui.styles import apply_theme
 
 # Benign Qt warnings on Fedora/Wayland:
 #  * qt.qpa.services – portal can't map app-id "syzygy" until syzygy.desktop is installed
@@ -46,7 +46,9 @@ def main() -> int:
     app.setOrganizationName("Syzygy")
     app.setDesktopFileName("syzygy")
 
-    apply_theme(app, dark=True)
+    # Translucency must be decided before the first window is created.
+    theme.set_translucent(theme.translucency_requested())
+    theme.apply_theme(app)  # last used theme, Glass by default
 
     window = MainWindow()
     window.show()

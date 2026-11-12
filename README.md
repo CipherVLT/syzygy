@@ -4,7 +4,7 @@ Modern package & system manager for Fedora Linux.
 
 Built with **Python 3.11+** and **PySide6**.
 
-Inspired by the original FedoraForge / Rustora concept.
+
 
 ## Features
 

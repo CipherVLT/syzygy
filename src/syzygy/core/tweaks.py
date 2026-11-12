@@ -18,12 +18,44 @@ CPUINFO = Path("/proc/cpuinfo")
 _X86_64_V3_FLAGS = {"avx", "avx2", "bmi1", "bmi2", "f16c", "fma", "movbe", "xsave"}
 
 GAMING_PACKAGES = ("steam", "lutris", "gamemode", "mangohud", "gamescope", "protontricks", "wine")
+CODEC_EXTRAS = ("gstreamer1-plugins-bad-freeworld", "gstreamer1-plugins-ugly",
+                "gstreamer1-plugin-libav", "lame")
+# Fresh-install toolchain: enough to clone and build Syzygy and typical C/C++/CMake projects,
+# plus 32-bit (multilib) runtime + devel libraries for i686 builds and older software.
+BUILD_ESSENTIALS = (
+    "git", "gcc", "gcc-c++", "make", "cmake", "ninja-build", "meson", "pkgconf-pkg-config",
+    "autoconf", "automake", "libtool", "patch", "rpm-build", "obs-build",
+    "python3-devel", "python3-pip", "curl", "tar", "unzip", "zstd",
+    "glibc-devel.i686", "libgcc.i686", "libstdc++.i686", "libstdc++-devel.i686",
+)
 HYPRLAND_PACKAGES = ("hyprland", "waybar", "wofi", "swaync", "grim", "slurp", "wl-clipboard",
                      "xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk", "hyprpicker")
 
 
 def _dnf() -> str:
     return "dnf5" if shutil.which("dnf5") else "dnf"
+
+
+def _skip_unavailable() -> str:
+    """Install what exists, don't fail the whole transaction on one missing package."""
+    return "--skip-unavailable" if shutil.which("dnf5") else "--setopt=strict=False"
+
+
+def _ensure_rpmfusion(*, nonfree: bool) -> str:
+    """Shell snippet that installs RPM Fusion release packages only when missing."""
+    # $(rpm -E %fedora) is evaluated on the target (as RPM Fusion's docs do) – correct even
+    # on spins whose os-release VERSION_ID isn't the Fedora release number.
+    version = "$(rpm -E %fedora)"
+    lines = []
+    kinds = ("free", "nonfree") if nonfree else ("free",)
+    for kind in kinds:
+        url = (f"https://mirrors.rpmfusion.org/{kind}/fedora/"
+               f"rpmfusion-{kind}-release-{version}.noarch.rpm")
+        lines.append(
+            f"rpm -q rpmfusion-{kind}-release >/dev/null 2>&1 || "
+            f"{{ echo 'Enabling RPM Fusion {kind.title()}…'; {_dnf()} install -y {url}; }}"
+        )
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------- probes
@@ -82,10 +114,29 @@ echo "Updated $CONF:"; grep -E '^(max_parallel_downloads|fastestmirror)=' "$CONF
     return ["bash", "-c", script]
 
 def cmd_install_multimedia_codecs() -> list[str]:
-    return [_dnf(), "swap", "-y", "ffmpeg-free", "ffmpeg", "--allowerasing"]
+    dnf = _dnf()
+    script = f"""set -e
+{_ensure_rpmfusion(nonfree=False)}
+if rpm -q ffmpeg-free >/dev/null 2>&1; then
+    {dnf} swap -y ffmpeg-free ffmpeg --allowerasing
+else
+    {dnf} install -y ffmpeg --allowerasing
+fi
+{dnf} upgrade -y @multimedia --setopt=install_weak_deps=False \\
+    --exclude=PackageKit-gstreamer-plugin || echo "(multimedia group update skipped)"
+{dnf} install -y {_skip_unavailable()} {" ".join(CODEC_EXTRAS)}"""
+    return ["bash", "-c", script]
 
 def cmd_install_gaming_meta() -> list[str]:
-    return [_dnf(), "install", "-y", *GAMING_PACKAGES]
+    script = f"""set -e
+{_ensure_rpmfusion(nonfree=True)}
+{_dnf()} install -y {_skip_unavailable()} {" ".join(GAMING_PACKAGES)}"""
+    return ["bash", "-c", script]
+
+def cmd_install_build_essentials() -> list[str]:
+    # dnf skips what's already installed; --skip-unavailable keeps going if a name is missing
+    # from the enabled repos (e.g. on a custom spin).
+    return [_dnf(), "install", "-y", _skip_unavailable(), *BUILD_ESSENTIALS]
 
 def cmd_install_protonup_qt() -> list[str]:
     return ["flatpak", "install", "-y", "--noninteractive", "flathub", "net.davidotek.pupgui2"]
@@ -143,7 +194,12 @@ def _probe_codecs(env: _Env) -> TweakState:
     if is_rpm_installed("ffmpeg"):
         return TweakState(active=True)
     if not env.rpmfusion_free:
-        return TweakState(False, False, "Requires RPM Fusion Free – enable it in the Repos tab.")
+        return TweakState(
+            active=False,
+            note="RPM Fusion Free will be enabled automatically.",
+            warning="This first installs the RPM Fusion Free release package "
+                    "(community repository) and imports its signing key.",
+        )
     return TweakState(active=False)
 
 
@@ -152,11 +208,31 @@ def _probe_gaming(env: _Env) -> TweakState:
     missing = [p for p in GAMING_PACKAGES if p not in present]
     if not missing:
         return TweakState(active=True)
-    if not env.rpmfusion_nonfree:
-        return TweakState(False, False,
-                          "Steam comes from RPM Fusion Nonfree – enable it in the Repos tab.")
-    note = f"Missing: {', '.join(missing)}" if present else ""
-    return TweakState(active=False, note=note)
+    notes = []
+    warning = ""
+    if not (env.rpmfusion_free and env.rpmfusion_nonfree):
+        notes.append("RPM Fusion Free + Nonfree (Steam) will be enabled automatically.")
+        warning = ("This first installs the RPM Fusion Free and Nonfree release packages "
+                   "(community repositories) and imports their signing keys.")
+    if present:
+        notes.append(f"Missing: {', '.join(missing)}")
+    return TweakState(active=False, note=" ".join(notes), warning=warning)
+
+
+def _probe_build_essentials() -> TweakState:
+    result = runner.run(["rpm", "-q", "--qf", "%{NAME}.%{ARCH}\n", *BUILD_ESSENTIALS], timeout=20)
+    seen = {ln.strip() for ln in result.stdout.splitlines() if ln.strip()}
+    names = {s.rsplit(".", 1)[0] for s in seen}
+    missing = [
+        spec for spec in BUILD_ESSENTIALS
+        if (spec not in seen if spec.endswith((".i686", ".x86_64")) else spec not in names)
+    ]
+    if not missing:
+        return TweakState(active=True)
+    shown = ", ".join(missing[:8]) + (f" +{len(missing) - 8} more" if len(missing) > 8 else "")
+    if len(missing) == len(BUILD_ESSENTIALS):
+        return TweakState(active=False)
+    return TweakState(active=False, note=f"Missing: {shown}")
 
 
 def _probe_protonup(env: _Env) -> TweakState:
@@ -206,16 +282,24 @@ def build_registry(env_factory: Callable[[], _Env] = _env) -> list[Tweak]:
         return env_cache[0]
 
     return [
+        Tweak("build-essentials", "Build essentials",
+              "Everything a fresh Fedora needs to clone and build software: git, GCC/G++, "
+              "make, CMake, Ninja, Meson, autotools, rpm-build, obs-build, Python headers, "
+              "curl/wget, archive tools and 32-bit (multilib) libraries. Installs only what's "
+              "missing.",
+              "Install", cmd_install_build_essentials, True, _probe_build_essentials),
         Tweak("dnf-speed", "Faster DNF downloads",
               "Sets max_parallel_downloads=10 and fastestmirror=True in /etc/dnf/dnf.conf.",
               "Apply", cmd_set_dnf_parallel_downloads, True, _probe_parallel, ("repos",)),
         Tweak("codecs", "Full multimedia codecs",
               "Swaps Fedora's patent-free ffmpeg-free for RPM Fusion's full ffmpeg "
               "(H.264/HEVC/AAC playback and encoding).",
-              "Install", cmd_install_multimedia_codecs, True, lambda: _probe_codecs(env())),
+              "Install", cmd_install_multimedia_codecs, True, lambda: _probe_codecs(env()),
+              ("packages", "repos")),
         Tweak("gaming", "Gaming Meta",
               "Steam, Lutris, GameMode, MangoHud, Gamescope, Protontricks and Wine.",
-              "Install", cmd_install_gaming_meta, True, lambda: _probe_gaming(env())),
+              "Install", cmd_install_gaming_meta, True, lambda: _probe_gaming(env()),
+              ("packages", "repos")),
         Tweak("protonup", "ProtonUp-Qt",
               "Install and update Proton-GE / Wine-GE builds for Steam and Lutris (Flatpak).",
               "Install", cmd_install_protonup_qt, False, lambda: _probe_protonup(env()),

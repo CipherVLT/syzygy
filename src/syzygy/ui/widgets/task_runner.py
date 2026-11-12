@@ -36,7 +36,8 @@ def format_command(command: Sequence[str], *, use_pkexec: bool = False) -> list[
     parts = list(command)
     if len(parts) >= 3 and parts[0] in ("bash", "sh") and parts[1] == "-c":
         script = [ln.strip() for ln in parts[2].replace("; ", ";\n").splitlines() if ln.strip()]
-        return [f"$ {prefix}{parts[0]} -c <<'SCRIPT'", *(f"    {ln}" for ln in script),
+        args = f"  (args: {' '.join(shlex.quote(a) for a in parts[4:])})" if len(parts) > 4 else ""
+        return [f"$ {prefix}{parts[0]} -c <<'SCRIPT'{args}", *(f"    {ln}" for ln in script),
                 "  SCRIPT", ""]
     return ["$ " + prefix + " ".join(shlex.quote(p) for p in parts), ""]
 
@@ -76,7 +77,8 @@ class CommandTask(QObject):
         self.worker.setAutoDelete(False)
 
         signals = self.worker.signals
-        signals.output_line.connect(self.dialog.append_line)
+        self._missing_program: str | None = None
+        signals.output_line.connect(self._on_output)
         signals.error.connect(self._on_error)
         signals.finished.connect(self._on_finished)
         self.dialog.finished.connect(self._on_dialog_closed)
@@ -94,6 +96,13 @@ class CommandTask(QObject):
 
     # ------------------------------------------------------------------ slots
     @Slot(str)
+    def _on_output(self, line: str) -> None:
+        self.dialog.append_line(line)
+        # pkexec prints this and exits 127 – the same code it uses for "not authorized".
+        if line.startswith("Cannot run program "):
+            self._missing_program = line.removeprefix("Cannot run program ").split(":", 1)[0]
+
+    @Slot(str)
     def _on_error(self, message: str) -> None:
         self._error_text = message
         self.dialog.append_line(f"[error] {message}")
@@ -105,6 +114,9 @@ class CommandTask(QObject):
             self.dialog.set_success(self._success_message)
         elif self._use_pkexec and code == PKEXEC_DISMISSED:
             message = "Authentication cancelled – nothing was changed"
+            self.dialog.set_failure(self._failure_message, message)
+        elif self._use_pkexec and code == PKEXEC_NOT_AUTHORIZED and self._missing_program:
+            message = f"'{self._missing_program}' is not installed"
             self.dialog.set_failure(self._failure_message, message)
         elif self._use_pkexec and code == PKEXEC_NOT_AUTHORIZED:
             message = "Not authorized – administrator authentication failed"

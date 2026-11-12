@@ -32,16 +32,22 @@ FLATHUB_URL = "https://dl.flathub.org/repo/flathub.flatpakrepo"
 
 @lru_cache(maxsize=1)
 def get_fedora_version() -> str:
-    try:
-        os_release = platform.freedesktop_os_release()
-        version = os_release.get("VERSION_ID")
-        if version: return version
-    except Exception: pass
+    """Fedora release number. rpm's %fedora macro first: custom spins may set their own
+    VERSION_ID in os-release, but %fedora always reflects the Fedora base."""
     try:
         out = subprocess.check_output(["rpm", "-E", "%fedora"], text=True, timeout=5).strip()
-        if out.isdigit(): return out
-    except Exception: pass
+        if out.isdigit():
+            return out
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        version = platform.freedesktop_os_release().get("VERSION_ID", "")
+        if version.isdigit():
+            return version
+    except Exception:  # noqa: BLE001
+        pass
     return "41"
+
 
 def _has_dnf5() -> bool:
     return shutil.which("dnf5") is not None

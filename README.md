@@ -36,6 +36,16 @@ cd syzygy
 syzygy              # or launch "Syzygy" from your app launcher
 ```
 
+No git yet (fresh install)? Download the source archive instead:
+
+```bash
+curl -L https://github.com/CipherVLT/syzygy/archive/main.tar.gz | tar xz
+cd syzygy-main && ./build.sh
+```
+
+Then **Tweaks → Build essentials** installs git, compilers, CMake/Ninja/Meson, rpm-build,
+obs-build, Python headers and 32-bit (multilib) libraries in one go.
+
 After installing, the cloned folder is no longer needed: Syzygy lives in `/opt/syzygy`
 with a launcher in `/usr/local/bin` and a desktop entry + icon in `/usr/local/share`.
 

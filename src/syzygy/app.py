@@ -42,7 +42,7 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("Syzygy")
-    app.setApplicationVersion("0.3.0")
+    app.setApplicationVersion("0.3.1")
     app.setOrganizationName("Syzygy")
     app.setDesktopFileName("syzygy")
 

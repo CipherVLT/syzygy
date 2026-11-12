@@ -43,9 +43,13 @@ class KernelsTab(BasePage):
         self._render(value)
 
         parts = [f"Running {value.running}", f"{len(value.kernels)} installed",
-                 f"DNF keeps the newest {value.installonly_limit} (installonly_limit)"]
-        if value.default is None:
-            parts.append("default boot entry unknown – grubby needs admin rights to read it")
+                 f"DNF keeps the newest {value.installonly_limit} (installonly_limit)",
+                 f"boot default via {value.boot_backend or 'unavailable'}"]
+        if value.boot_backend is None:
+            parts.append("install grubby to change the boot default")
+            self.set_status("   ·   ".join(parts), level="warning")
+        elif value.default is None:
+            parts.append("current default can't be read without admin rights")
             self.set_status("   ·   ".join(parts), level="warning")
         else:
             self.set_status("   ·   ".join(parts))
@@ -83,6 +87,9 @@ class KernelsTab(BasePage):
 
             if entry.is_default:
                 self.lock(default_btn, "Already the default boot entry")
+            elif report.boot_backend is None:
+                self.lock(default_btn, "No grubby, bootctl or grub2-set-default found – "
+                                       "sudo dnf install grubby")
             reason = kernels.removal_block_reason(entry, report)
             if reason:
                 self.lock(remove_btn, reason)

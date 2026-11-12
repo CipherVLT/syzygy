@@ -24,14 +24,6 @@ CODEC_EXTRAS = ("gstreamer1-plugins-bad-freeworld", "gstreamer1-plugins-ugly",
 # SoX for converting/resampling PCM, libsndfile tools for WAV/AIFF/FLAC PCM inspection.
 PCM_PACKAGES = ("gstreamer1-plugins-base", "gstreamer1-plugins-good", "sox",
                 "libsndfile-utils")
-# Fresh-install toolchain: enough to clone and build Syzygy and typical C/C++/CMake projects,
-# plus 32-bit (multilib) runtime + devel libraries for i686 builds and older software.
-BUILD_ESSENTIALS = (
-    "git", "gcc", "gcc-c++", "make", "cmake", "ninja-build", "meson", "pkgconf-pkg-config",
-    "autoconf", "automake", "libtool", "patch", "rpm-build", "obs-build",
-    "python3-devel", "python3-pip", "curl", "tar", "unzip", "zstd",
-    "glibc-devel.i686", "libgcc.i686", "libstdc++.i686", "libstdc++-devel.i686",
-)
 HYPRLAND_PACKAGES = ("hyprland", "waybar", "wofi", "swaync", "grim", "slurp", "wl-clipboard",
                      "xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk", "hyprpicker")
 
@@ -137,11 +129,6 @@ def cmd_install_gaming_meta() -> list[str]:
 {_dnf()} install -y {_skip_unavailable()} {" ".join(GAMING_PACKAGES)}"""
     return ["bash", "-c", script]
 
-def cmd_install_build_essentials() -> list[str]:
-    # dnf skips what's already installed; --skip-unavailable keeps going if a name is missing
-    # from the enabled repos (e.g. on a custom spin).
-    return [_dnf(), "install", "-y", _skip_unavailable(), *BUILD_ESSENTIALS]
-
 def cmd_install_protonup_qt() -> list[str]:
     return ["flatpak", "install", "-y", "--noninteractive", "flathub", "net.davidotek.pupgui2"]
 
@@ -226,22 +213,6 @@ def _probe_gaming(env: _Env) -> TweakState:
     return TweakState(active=False, note=" ".join(notes), warning=warning)
 
 
-def _probe_build_essentials() -> TweakState:
-    result = runner.run(["rpm", "-q", "--qf", "%{NAME}.%{ARCH}\n", *BUILD_ESSENTIALS], timeout=20)
-    seen = {ln.strip() for ln in result.stdout.splitlines() if ln.strip()}
-    names = {s.rsplit(".", 1)[0] for s in seen}
-    missing = [
-        spec for spec in BUILD_ESSENTIALS
-        if (spec not in seen if spec.endswith((".i686", ".x86_64")) else spec not in names)
-    ]
-    if not missing:
-        return TweakState(active=True)
-    shown = ", ".join(missing[:8]) + (f" +{len(missing) - 8} more" if len(missing) > 8 else "")
-    if len(missing) == len(BUILD_ESSENTIALS):
-        return TweakState(active=False)
-    return TweakState(active=False, note=f"Missing: {shown}")
-
-
 def _probe_protonup(env: _Env) -> TweakState:
     if shutil.which("flatpak") is None:
         return TweakState(False, False, "Flatpak is not installed.")
@@ -289,12 +260,6 @@ def build_registry(env_factory: Callable[[], _Env] = _env) -> list[Tweak]:
         return env_cache[0]
 
     return [
-        Tweak("build-essentials", "Build essentials",
-              "Everything a fresh Fedora needs to clone and build software: git, GCC/G++, "
-              "make, CMake, Ninja, Meson, autotools, rpm-build, obs-build, Python headers, "
-              "curl/wget, archive tools and 32-bit (multilib) libraries. Installs only what's "
-              "missing.",
-              "Install", cmd_install_build_essentials, True, _probe_build_essentials),
         Tweak("dnf-speed", "Faster DNF downloads",
               "Sets max_parallel_downloads=10 and fastestmirror=True in /etc/dnf/dnf.conf.",
               "Apply", cmd_set_dnf_parallel_downloads, True, _probe_parallel, ("repos",)),

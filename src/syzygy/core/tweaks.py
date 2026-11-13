@@ -24,8 +24,9 @@ CODEC_EXTRAS = ("gstreamer1-plugins-bad-freeworld", "gstreamer1-plugins-ugly",
 # SoX for converting/resampling PCM, libsndfile tools for WAV/AIFF/FLAC PCM inspection.
 PCM_PACKAGES = ("gstreamer1-plugins-base", "gstreamer1-plugins-good", "sox",
                 "libsndfile-utils")
-# Requested alongside codecs: build tooling and 32-bit (multilib) runtime/devel libraries.
-CODEC_TOOLING = ("cmake", "ninja-build", "obs-build",
+# Requested alongside codecs: obs-build and 32-bit (multilib) runtime/devel libraries.
+# (CMake/Ninja are omitted: the Perihelion base image ships them.)
+CODEC_TOOLING = ("obs-build",
                  "glibc-devel.i686", "libgcc.i686", "libstdc++.i686", "libstdc++-devel.i686")
 # Everything the codecs probe checks besides ffmpeg itself.
 CODEC_CHECKED = (*PCM_PACKAGES, *CODEC_TOOLING)
@@ -279,8 +280,8 @@ def build_registry(env_factory: Callable[[], _Env] = _env) -> list[Tweak]:
         Tweak("codecs", "Full multimedia codecs",
               "Swaps Fedora's patent-free ffmpeg-free for RPM Fusion's full ffmpeg "
               "(H.264/HEVC/AAC playback and encoding), adds GStreamer plugins, PCM/WAV "
-              "support (GStreamer base+good, SoX, libsndfile tools), CMake, Ninja, obs-build "
-              "and 32-bit (multilib) libraries.",
+              "support (GStreamer base+good, SoX, libsndfile tools), obs-build and 32-bit "
+              "(multilib) libraries.",
               "Install", cmd_install_multimedia_codecs, True, lambda: _probe_codecs(env()),
               ("packages", "repos")),
         Tweak("gaming", "Gaming Meta",

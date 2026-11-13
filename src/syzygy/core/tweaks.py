@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import platform
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -30,6 +31,13 @@ CODEC_TOOLING = ("obs-build",
                  "glibc-devel.i686", "libgcc.i686", "libstdc++.i686", "libstdc++-devel.i686")
 # Everything the codecs probe checks besides ffmpeg itself.
 CODEC_CHECKED = (*PCM_PACKAGES, *CODEC_TOOLING)
+# Build prerequisites for NVIDIA's official .run installer (production branch). Deliberately no
+# driver, akmods or RPM Fusion/COPR NVIDIA packages – the user runs the .run installer later.
+NVIDIA_HEADER_PACKAGES = ("kernel-devel", "kernel-headers", "gcc", "make", "dkms", "acpid",
+                          "libglvnd-glx", "libglvnd-opengl", "libglvnd-devel", "pkgconfig",
+                          "libxcb", "egl-wayland")
+# Checked for the Active badge (exact package names; "pkgconfig" is only a virtual provide).
+NVIDIA_KEY_PACKAGES = ("kernel-devel", "kernel-headers", "gcc", "make", "dkms")
 HYPRLAND_PACKAGES = ("hyprland", "waybar", "wofi", "swaync", "grim", "slurp", "wl-clipboard",
                      "xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk", "hyprpicker")
 
@@ -149,6 +157,10 @@ def cmd_install_protonup_qt() -> list[str]:
 def cmd_enable_cachyos_kernel() -> list[str]:
     return ["bash", "-c", f"set -e; {_dnf()} copr enable -y bieszczaders/kernel-cachyos; setsebool -P domain_kernel_load_modules 1; {_dnf()} install -y kernel-cachyos kernel-cachyos-devel-matched || {_dnf()} install -y kernel-cachyos"]
 
+def cmd_install_nvidia_headers() -> list[str]:
+    """One dnf transaction with the .run installer's build dependencies (no driver)."""
+    return [_dnf(), "install", "-y", *NVIDIA_HEADER_PACKAGES]
+
 def cmd_install_hyprland_stack() -> list[str]:
     return ["bash", "-c", f"set -e; {_dnf()} copr enable -y solopasha/hyprland; {_dnf()} install -y {' '.join(HYPRLAND_PACKAGES)}"]
 
@@ -256,6 +268,27 @@ def _probe_cachyos() -> TweakState:
     return TweakState(active=False)
 
 
+def running_kernel_has_headers(release: str | None = None,
+                               modules_root: Path = Path("/lib/modules")) -> bool:
+    """The .run installer builds against /lib/modules/$(uname -r)/build."""
+    return (modules_root / (release or platform.release()) / "build").exists()
+
+
+def _probe_nvidia_headers() -> TweakState:
+    present = installed_rpms(NVIDIA_KEY_PACKAGES)
+    if "kernel-devel" not in present:
+        return TweakState(active=False)
+    notes: list[str] = []
+    missing = [p for p in NVIDIA_KEY_PACKAGES if p not in present]
+    if missing:
+        notes.append(f"Missing: {', '.join(missing)}")
+    if not running_kernel_has_headers():
+        notes.append(f"No headers for the running kernel {platform.release()} – boot the "
+                     "newest Fedora kernel (or install that kernel's -devel package) before "
+                     "running the NVIDIA .run installer.")
+    return TweakState(active=True, note=" ".join(notes))
+
+
 def _probe_hyprland() -> TweakState:
     present = installed_rpms(HYPRLAND_PACKAGES)
     if "hyprland" in present:
@@ -297,6 +330,11 @@ def build_registry(env_factory: Callable[[], _Env] = _env) -> list[Tweak]:
               "bieszczaders/kernel-cachyos COPR. Your Fedora kernel stays installed.",
               "Install", cmd_enable_cachyos_kernel, True, _probe_cachyos,
               ("packages", "repos", "kernels")),
+        Tweak("nvidia-headers", "Nvidia Headers",
+              "Installs kernel headers and build dependencies required for the official "
+              "NVIDIA .run driver (production branch). Does not install the driver itself "
+              "and enables no NVIDIA repositories.",
+              "Install Headers", cmd_install_nvidia_headers, True, _probe_nvidia_headers),
         Tweak("hyprland", "Hyprland desktop stack",
               "Hyprland compositor with Waybar, Wofi, SwayNC, screenshot tools and portals "
               "(solopasha/hyprland COPR). Pick it at the login screen afterwards.",
